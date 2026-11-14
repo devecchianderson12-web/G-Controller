@@ -8,7 +8,6 @@ namespace GControl
     static class Art
     {
         static readonly Color Blue = Color.FromArgb(26, 159, 255);
-        static readonly Color BlueDeep = Color.FromArgb(0, 92, 200);
 
         public static GraphicsPath Round(RectangleF r, float rad)
         {
@@ -23,7 +22,7 @@ namespace GControl
             return p;
         }
 
-        // Icono: cuadro redondeado azul con auriculares y un punto de señal.
+        // Icono minimalista: cuadro oscuro, anillo azul abierto y un punto (un dial de control).
         public static void DrawLogo(Graphics g, float x, float y, float size)
         {
             var st = g.Save();
@@ -32,23 +31,15 @@ namespace GControl
             g.TranslateTransform(x, y);
             g.ScaleTransform(size / 100f, size / 100f);
             var box = new RectangleF(4, 4, 92, 92);
-            using (var p = Round(box, 22))
-            using (var b = new LinearGradientBrush(box, Blue, BlueDeep, 45f)) g.FillPath(b, p);
-
-            bool small = size < 32;
-            using (var pen = new Pen(Color.White, small ? 11 : 8) { StartCap = LineCap.Round, EndCap = LineCap.Round })
-                g.DrawArc(pen, 24, 24, 52, 52, 180, 180);
-            using (var w = new SolidBrush(Color.White))
+            using (var p = Round(box, 24))
             {
-                using (var l = Round(new RectangleF(18, 46, 16, 28), 6)) g.FillPath(w, l);
-                using (var r = Round(new RectangleF(66, 46, 16, 28), 6)) g.FillPath(w, r);
+                using (var b = new SolidBrush(Color.FromArgb(18, 19, 22))) g.FillPath(b, p);
+                if (size >= 32) using (var edge = new Pen(Color.FromArgb(48, 50, 56), 2)) g.DrawPath(edge, p);
             }
-            if (!small)
-                using (var mic = new Pen(Color.White, 5) { StartCap = LineCap.Round, EndCap = LineCap.Round })
-                {
-                    g.DrawBezier(mic, 26, 72, 28, 84, 38, 86, 48, 84);
-                    g.FillEllipse(Brushes.White, 46, 80, 9, 8);
-                }
+            var ring = new RectangleF(24, 24, 52, 52);
+            using (var pen = new Pen(Blue, size < 32 ? 13 : 10) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                g.DrawArc(pen, ring, -40, 300);
+            using (var dot = new SolidBrush(Color.White)) g.FillEllipse(dot, 43, 43, 14, 14);
             g.Restore(st);
         }
 

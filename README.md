@@ -1,4 +1,4 @@
-# Logitech G305 / G733 Software
+# G Controller
 
 App mínima y portable para el ratón **G305** (receptor LIGHTSPEED) y los auriculares **G733**, al estilo de G HUB. Un solo `.exe`, sin instalar.
 
@@ -16,7 +16,7 @@ Cierra G HUB mientras usas esta app: si no, los dos controlan los aparatos y el 
 
 ## Uso
 
-1. Baja `GControl.exe` de [Releases](../../releases).
+1. Baja `GController.exe` de [Releases](../../releases).
 2. Ábrelo.
 
 Requiere .NET Framework 4.x (ya viene con Windows 10 y 11).
@@ -26,6 +26,13 @@ Requiere .NET Framework 4.x (ya viene con Windows 10 y 11).
 ```bat
 build.cmd
 ```
+
+## Publicar una actualización
+
+1. Cambia `Version` en `src/App.cs` (por ejemplo `1.0.1`).
+2. Haz push a `main`.
+
+GitHub Actions (`.github/workflows/build.yml`) compila el `.exe` y crea la release `v1.0.1`. Las apps abiertas la ven y muestran el aviso para actualizar.
 
 ## Protocolo
 

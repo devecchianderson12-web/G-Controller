@@ -10,8 +10,8 @@ namespace GControl
     // Busca la última release en GitHub y reemplaza el .exe al instalar.
     static class Updater
     {
-        public const string Repo = "devecchianderson12-web/Logitech-G305-G733-Software";
-        const string AssetName = "GControl.exe";
+        public const string Repo = "devecchianderson12-web/G-Controller";
+        const string AssetName = "GController.exe";
 
         public class Release
         {
@@ -24,7 +24,7 @@ namespace GControl
         {
             ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072; // TLS 1.2
             var wc = new WebClient();
-            wc.Headers[HttpRequestHeader.UserAgent] = "GControl/" + Program.Version;
+            wc.Headers[HttpRequestHeader.UserAgent] = "GController/" + Program.Version;
             return wc;
         }
 
@@ -69,7 +69,7 @@ namespace GControl
                     }
 
                 int pid = Process.GetCurrentProcess().Id;
-                string script = Path.Combine(Path.GetTempPath(), "gcontrol-update-" + pid + ".cmd");
+                string script = Path.Combine(Path.GetTempPath(), "gcontroller-update-" + pid + ".cmd");
                 File.WriteAllText(script,
                     "@echo off\r\n" +
                     ":wait\r\n" +

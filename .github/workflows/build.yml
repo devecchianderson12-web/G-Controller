@@ -1,0 +1,41 @@
+# Compila GController.exe y publica una release cuando sube la versión.
+# Para sacar una update: cambiar Version en src/App.cs y hacer push a main.
+name: build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Leer versión
+        id: ver
+        shell: pwsh
+        run: |
+          $m = Select-String -Path src/App.cs -Pattern 'Version = "([0-9.]+)"'
+          $v = $m.Matches[0].Groups[1].Value
+          "version=$v" >> $env:GITHUB_OUTPUT
+          gh release view "v$v" *> $null
+          if ($LASTEXITCODE -eq 0) { "exists=true" >> $env:GITHUB_OUTPUT } else { "exists=false" >> $env:GITHUB_OUTPUT }
+          exit 0
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Compilar
+        shell: cmd
+        run: build.cmd
+
+      - name: Publicar release
+        if: steps.ver.outputs.exists == 'false'
+        shell: pwsh
+        run: gh release create "v${{ steps.ver.outputs.version }}" GController.exe --title "v${{ steps.ver.outputs.version }}" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

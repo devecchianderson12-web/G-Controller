@@ -24,7 +24,7 @@ namespace GControl
                 return;
             }
             bool fresh;
-            using (var m = new Mutex(true, "GControl.single", out fresh))
+            using (var m = new Mutex(true, "GController.single", out fresh))
             {
                 if (!fresh) return;
                 Application.EnableVisualStyles();
@@ -42,9 +42,9 @@ namespace GControl
 
     static class Settings
     {
-        const string Key = @"Software\GControl";
+        const string Key = @"Software\GController";
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
-        const string RunName = "GControl";
+        const string RunName = "GController";
 
         static int Get(string name, int def)
         {
@@ -121,7 +121,7 @@ namespace GControl
 
         public MainForm()
         {
-            Text = "G Control";
+            Text = "G Controller";
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Theme.Back;
@@ -147,7 +147,7 @@ namespace GControl
                 else if (i == 1) { ShowWindow(); ShowPage(settings); }
                 else Quit();
             };
-            tray.Text = "G Control";
+            tray.Text = "G Controller";
             tray.Icon = MakeIcon(SystemInformation.SmallIconSize.Width);
             tray.MouseUp += (s, e) =>
             {
