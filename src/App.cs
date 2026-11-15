@@ -11,7 +11,7 @@ namespace GControl
 {
     static class Program
     {
-        public const string Version = "1.2.0";
+        public const string Version = "1.3.0";
 
         [STAThread]
         static void Main(string[] args)
