@@ -38,6 +38,7 @@ namespace GControl
 
         void OpenMic()
         {
+            RightSplit = 300; CenterRight = true;
             device.SuspendLayout();
             foreach (Control c in device.Controls) c.Dispose();
             device.Controls.Clear();
@@ -57,7 +58,7 @@ namespace GControl
             };
 
             // ----- Columna izquierda -----
-            var left = new Panel { Location = new Point(24, 56), Size = new Size(260, 548), BackColor = Theme.Card };
+            var left = new Panel { Name = "growH", Location = new Point(24, 56), Size = new Size(260, 548), BackColor = Theme.Card };
             left.Paint += (s, e) => { };
             device.Controls.Add(left);
             int lx = 16, ly = 12, lw = 228;
@@ -92,7 +93,7 @@ namespace GControl
 
             AddSmall(left, "PREAJUSTES", lx, ly);
             ly += 22;
-            var presets = new Panel { Location = new Point(lx, ly), Size = new Size(lw, 548 - ly - 12), BackColor = Theme.Card, AutoScroll = true };
+            var presets = new Panel { Location = new Point(lx, ly), Size = new Size(lw, 548 - ly - 12), BackColor = Theme.Card, AutoScroll = true, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Bottom };
             left.Controls.Add(presets);
             Label title = null;
             Action refresh = () => { foreach (var a in controls) a(); if (title != null) title.Text = presetName; };

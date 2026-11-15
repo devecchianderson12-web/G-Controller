@@ -122,7 +122,7 @@ namespace GControl
         public MainForm()
         {
             Text = "G Controller";
-            FormBorderStyle = FormBorderStyle.None;
+            FormBorderStyle = FormBorderStyle.None; // el marco que anima Windows se agrega en CreateParams
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Theme.Back;
             ForeColor = Theme.Text;
@@ -134,14 +134,14 @@ namespace GControl
             BuildTop();
             body.Dock = DockStyle.Fill;
             body.BackColor = Theme.Back;
-            // El contenido mide siempre lo mismo y se centra al maximizar.
-            stage.Size = new Size(1040, 616);
+            // El contenido llena la ventana; al maximizar se reparte el espacio (ver Responsive).
+            stage.Dock = DockStyle.Fill;
             stage.BackColor = Theme.Back;
             body.Controls.Add(stage);
-            body.Resize += (s, e) => stage.Location = new Point(Math.Max(0, (body.Width - stage.Width) / 2), Math.Max(0, (body.Height - stage.Height) / 2));
             foreach (var p in new[] { home, device, settings }) { p.Dock = DockStyle.Fill; p.BackColor = Theme.Back; stage.Controls.Add(p); }
             Controls.Add(body);
             Controls.Add(top);
+            device.Resize += (s, e) => Responsive(device);
             BuildHome();
             BuildSettings();
             ShowPage(home);
@@ -168,9 +168,9 @@ namespace GControl
             timer.Tick += (s, e) => Poll();
             timer.Start();
 
-            // Buscar actualización a los 8 s y luego cada 6 h.
+            // Buscar actualización una sola vez, 8 s después de abrir. El aviso sale solo si hay una versión nueva.
             updTimer.Interval = 8000;
-            updTimer.Tick += (s, e) => { updTimer.Interval = 6 * 3600 * 1000; CheckUpdate(false); };
+            updTimer.Tick += (s, e) => { updTimer.Stop(); CheckUpdate(false); };
             updTimer.Start();
 
             // Procesado de voz guardado: arranca si estaba activo.
@@ -240,38 +240,42 @@ namespace GControl
 
         IconButton max;
 
-        // Maximiza sin tapar la barra de tareas.
-        bool maximized;
-        Rectangle normalBounds;
-        System.Windows.Forms.Timer anim;
-
-        // Maximiza sin tapar la barra de tareas, con una animación corta.
+        // Maximizar con la animación nativa de Windows, como G HUB.
         void ToggleMaximize()
         {
-            Rectangle from = Bounds, to;
-            if (maximized) to = normalBounds;
-            else { normalBounds = Bounds; to = Screen.FromHandle(Handle).WorkingArea; }
-            maximized = !maximized;
-            max.Restore = maximized;
-            max.Invalidate();
-            if (anim != null) anim.Dispose();
-            var start = DateTime.Now;
-            anim = new System.Windows.Forms.Timer { Interval = 10 };
-            anim.Tick += (s, e) =>
+            WindowState = WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized;
+        }
+
+        // Windows suma el marco invisible al restaurar; se guarda el tamaño normal y se repone.
+        Rectangle normalBounds = new Rectangle(0, 0, 1040, 700);
+        FormWindowState lastState = FormWindowState.Normal;
+        int restoreUntil;
+
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+            var wa = Screen.FromHandle(Handle).WorkingArea;
+            Bounds = normalBounds = new Rectangle(wa.Left + (wa.Width - 1040) / 2, wa.Top + (wa.Height - 700) / 2, 1040, 700);
+            MinimumSize = new Size(1040, 700);
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            if (WindowState == FormWindowState.Normal)
             {
-                double t = Math.Min(1, (DateTime.Now - start).TotalMilliseconds / 220);
-                double k = 1 - Math.Pow(1 - t, 3); // suave al final
-                Bounds = new Rectangle(
-                    (int)(from.X + (to.X - from.X) * k), (int)(from.Y + (to.Y - from.Y) * k),
-                    (int)(from.Width + (to.Width - from.Width) * k), (int)(from.Height + (to.Height - from.Height) * k));
-                if (t >= 1) { anim.Stop(); Bounds = to; }
-            };
-            anim.Start();
+                if (lastState == FormWindowState.Maximized) restoreUntil = Environment.TickCount + 400;
+                else if (IsHandleCreated && Visible && Environment.TickCount > restoreUntil) normalBounds = Bounds;
+            }
+            lastState = WindowState;
+            if (max == null) return;
+            max.Restore = WindowState == FormWindowState.Maximized;
+            max.Invalidate();
         }
 
         void Drag(object sender, MouseEventArgs e)
         {
-            if (e.Button != MouseButtons.Left || e.Clicks > 1 || maximized) return;
+            if (e.Button != MouseButtons.Left || e.Clicks > 1) return;
             ReleaseCapture();
             SendMessage(Handle, 0xA1, (IntPtr)2, IntPtr.Zero);
         }
@@ -279,6 +283,7 @@ namespace GControl
         void ShowPage(Panel p)
         {
             foreach (Control c in stage.Controls) c.Visible = c == p;
+            Responsive(p);
         }
 
         // ---------- Inicio: tarjetas ----------
@@ -332,7 +337,7 @@ namespace GControl
             back.Click += (s, e) => ShowPage(home);
             device.Controls.Add(back);
 
-            var left = new Panel { Location = new Point(36, 74), Size = new Size(440, 540), BackColor = Theme.Back };
+            var left = new Panel { Name = "grow", Location = new Point(36, 74), Size = new Size(440, 540), BackColor = Theme.Back };
             left.Paint += (s, e) =>
             {
                 var g = e.Graphics;
@@ -349,13 +354,34 @@ namespace GControl
                 else TextRenderer.DrawText(g, "Apagado o sin conexión", small, new Point(0, 48), Theme.Dim);
                 if (pic != null)
                 {
-                    float sc = Math.Min(420f / pic.Width, 420f / pic.Height);
+                    float bw = left.ClientSize.Width - 20, bh = left.ClientSize.Height - 120;
+                    float sc = Math.Min(bw / pic.Width, bh / pic.Height);
                     float w = pic.Width * sc, h = pic.Height * sc;
-                    g.DrawImage(pic, (420 - w) / 2, 96 + (420 - h) / 2, w, h);
+                    g.DrawImage(pic, (bw - w) / 2, 96 + (bh - h) / 2, w, h);
                 }
             };
             device.Controls.Add(left);
             return device;
+        }
+
+        // Al agrandar la ventana: la columna derecha se pega al borde derecho y baja al centro,
+        // los paneles "grow" crecen y los "growH" crecen solo en alto. Base: 1040 x 616.
+        readonly System.Collections.Generic.Dictionary<Control, Rectangle> baseBounds = new System.Collections.Generic.Dictionary<Control, Rectangle>();
+        public int RightSplit = 480;
+        public bool CenterRight;
+
+        void Responsive(Control page)
+        {
+            if (page != device) return;
+            int dx = Math.Max(0, page.ClientSize.Width - 1040), dy = Math.Max(0, page.ClientSize.Height - 616);
+            foreach (Control c in page.Controls)
+            {
+                Rectangle b;
+                if (!baseBounds.TryGetValue(c, out b)) { b = c.Bounds; baseBounds[c] = b; c.Disposed += (s, e) => baseBounds.Remove((Control)s); }
+                if (c.Name == "grow") c.Bounds = new Rectangle(b.X, b.Y, b.Width + dx, b.Height + dy);
+                else if (c.Name == "growH") c.Bounds = new Rectangle(b.X, b.Y, b.Width, b.Height + dy);
+                else if (b.X >= RightSplit) c.Location = new Point(b.X + (CenterRight ? dx / 2 : dx), b.Y + dy / 2);
+            }
         }
 
         Label Header(string text, int x, int y)
@@ -385,6 +411,7 @@ namespace GControl
 
         void OpenHeadset()
         {
+            RightSplit = 480; CenterRight = false;
             NewDevicePage("G733", imgHeadset, () => headsetLevel);
             int x = 520, y = 24, w = 480;
             var micPage = new FlatButton { Text = "Micrófono y voz  ›", Width = 170, Location = new Point(196, 22) };
@@ -550,6 +577,7 @@ namespace GControl
 
         void OpenMouse()
         {
+            RightSplit = 480; CenterRight = false;
             NewDevicePage(mouse.Name, imgMouse, () => mouseLevel);
             int x = 520, y = 24, w = 480;
 
@@ -728,6 +756,12 @@ namespace GControl
             Close();
         }
 
+        protected override void OnMove(EventArgs e)
+        {
+            base.OnMove(e);
+            if (WindowState == FormWindowState.Normal && lastState == FormWindowState.Normal && Visible) normalBounds.Location = Location;
+        }
+
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             if (!quitting && e.CloseReason == CloseReason.UserClosing)
@@ -822,6 +856,11 @@ namespace GControl
             OpenHeadset(); Application.DoEvents(); save(this, "g733.png");
             OpenMouse(); Application.DoEvents(); save(this, "g305.png");
             OpenMic(); Application.DoEvents(); save(this, "mic.png");
+            ClientSize = new Size(1600, 900); Application.DoEvents();
+            OpenHeadset(); Application.DoEvents(); save(this, "g733_max.png");
+            OpenMic(); Application.DoEvents(); save(this, "mic_max.png");
+            ShowPage(home); Application.DoEvents(); save(this, "home_max.png");
+            ClientSize = new Size(1040, 700); Application.DoEvents();
             ShowPage(settings); save(this, "settings.png");
             save(popup, "tray.png");
             var o = new Osd();
@@ -831,6 +870,62 @@ namespace GControl
             save(o, "osd.png");
         }
 
+        // Estilos de ventana normal (marco, maximizar, minimizar) para que Windows anime igual que en G HUB.
+        // WndProc quita el borde visible.
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                var cp = base.CreateParams;
+                cp.Style |= 0x00C00000 | 0x00040000 | 0x00080000 | 0x00010000 | 0x00020000; // caption, thickframe, sysmenu, max, min
+                return cp;
+            }
+        }
+
+        // Sin borde visible: el tamaño de ventana es igual al del área cliente.
+        protected override Size SizeFromClientSize(Size clientSize) { return clientSize; }
+
+        protected override void WndProc(ref Message m)
+        {
+            const int WM_NCCALCSIZE = 0x83, WM_NCHITTEST = 0x84, WM_WINDOWPOSCHANGING = 0x46;
+            bool restoring = lastState == FormWindowState.Maximized || Environment.TickCount < restoreUntil;
+            if (m.Msg == WM_WINDOWPOSCHANGING && restoring && !IsZoomed(Handle) && !IsIconic(Handle))
+            {
+                // Al restaurar desde maximizada, volver exactamente al tamaño normal guardado.
+                var wp = (WINDOWPOS)Marshal.PtrToStructure(m.LParam, typeof(WINDOWPOS));
+                if ((wp.flags & 0x0001) == 0) { wp.cx = normalBounds.Width; wp.cy = normalBounds.Height; } // sin SWP_NOSIZE
+                Marshal.StructureToPtr(wp, m.LParam, false);
+            }
+            if (m.Msg == WM_NCCALCSIZE && m.WParam != IntPtr.Zero)
+            {
+                // Sin barra de título ni borde. Maximizada, Windows la pone un poco fuera de la pantalla: se recorta.
+                if (WindowState == FormWindowState.Maximized)
+                {
+                    var r = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
+                    int fx = GetSystemMetrics(32) + GetSystemMetrics(92), fy = GetSystemMetrics(33) + GetSystemMetrics(92);
+                    r.Left += fx; r.Top += fy; r.Right -= fx; r.Bottom -= fy;
+                    Marshal.StructureToPtr(r, m.LParam, false);
+                }
+                m.Result = IntPtr.Zero;
+                return;
+            }
+            if (m.Msg == WM_NCHITTEST && WindowState == FormWindowState.Normal)
+            {
+                // Bordes para cambiar el tamaño.
+                var p = PointToClient(new Point((short)((long)m.LParam & 0xFFFF), (short)(((long)m.LParam >> 16) & 0xFFFF)));
+                const int B = 6;
+                bool l = p.X < B, r = p.X >= ClientSize.Width - B, t = p.Y < B, b = p.Y >= ClientSize.Height - B;
+                int hit = t && l ? 13 : t && r ? 14 : b && l ? 16 : b && r ? 17 : l ? 10 : r ? 11 : t ? 12 : b ? 15 : 0;
+                if (hit != 0) { m.Result = (IntPtr)hit; return; }
+            }
+            base.WndProc(ref m);
+        }
+
+        [StructLayout(LayoutKind.Sequential)] struct RECT { public int Left, Top, Right, Bottom; }
+        [StructLayout(LayoutKind.Sequential)] struct WINDOWPOS { public IntPtr hwnd, after; public int x, y, cx, cy; public uint flags; }
+        [DllImport("user32.dll")] static extern bool IsZoomed(IntPtr h);
+        [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
+        [DllImport("user32.dll")] static extern int GetSystemMetrics(int i);
         [DllImport("user32.dll")] static extern bool DestroyIcon(IntPtr h);
         [DllImport("user32.dll")] static extern bool ReleaseCapture();
         [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr h, int msg, IntPtr w, IntPtr l);

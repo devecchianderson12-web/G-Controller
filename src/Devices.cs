@@ -130,7 +130,8 @@ namespace GControl
                 if (h.Index(0x2201) != 0)
                 {
                     Dev = h;
-                    Name = h.Name() ?? Name;
+                    var full = h.Name();
+                    if (!string.IsNullOrEmpty(full)) Name = full.Split(' ')[0]; // "G305 Lightspeed Wireless…" -> "G305"
                     return true;
                 }
                 h.Close();
