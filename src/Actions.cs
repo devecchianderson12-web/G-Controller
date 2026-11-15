@@ -112,6 +112,30 @@ namespace GControl
             catch { return false; }
         }
 
+        // Nivel del micrófono por defecto (0..100), como el control de Windows.
+        public static int MicLevel()
+        {
+            try
+            {
+                var v = Mic();
+                float f;
+                if (v == null || v.GetMasterVolumeLevelScalar(out f) != 0) return -1;
+                return (int)Math.Round(f * 100);
+            }
+            catch { return -1; }
+        }
+
+        public static bool SetMicLevel(int level)
+        {
+            try
+            {
+                var v = Mic();
+                var ctx = Guid.Empty;
+                return v != null && v.SetMasterVolumeLevelScalar(Math.Max(0, Math.Min(100, level)) / 100f, ref ctx) == 0;
+            }
+            catch { return false; }
+        }
+
         public static bool? MicMuted()
         {
             try

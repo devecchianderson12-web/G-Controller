@@ -11,7 +11,7 @@ namespace GControl
 {
     static class Program
     {
-        public const string Version = "1.0.0";
+        public const string Version = "1.1.0";
 
         [STAThread]
         static void Main(string[] args)
@@ -106,7 +106,7 @@ namespace GControl
         readonly TrayPopup popup = new TrayPopup();
         readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer();
         readonly System.Windows.Forms.Timer updTimer = new System.Windows.Forms.Timer();
-        readonly Panel top = new Panel(), body = new Panel();
+        readonly Panel top = new Panel(), body = new Panel(), stage = new Panel();
         readonly Panel home = new Panel(), device = new Panel(), settings = new Panel();
         readonly DeviceCard cardMouse = new DeviceCard(), cardHeadset = new DeviceCard();
         readonly Label ghubWarn = new Label();
@@ -134,7 +134,12 @@ namespace GControl
             BuildTop();
             body.Dock = DockStyle.Fill;
             body.BackColor = Theme.Back;
-            foreach (var p in new[] { home, device, settings }) { p.Dock = DockStyle.Fill; p.BackColor = Theme.Back; body.Controls.Add(p); }
+            // El contenido mide siempre lo mismo y se centra al maximizar.
+            stage.Size = new Size(1040, 616);
+            stage.BackColor = Theme.Back;
+            body.Controls.Add(stage);
+            body.Resize += (s, e) => stage.Location = new Point(Math.Max(0, (body.Width - stage.Width) / 2), Math.Max(0, (body.Height - stage.Height) / 2));
+            foreach (var p in new[] { home, device, settings }) { p.Dock = DockStyle.Fill; p.BackColor = Theme.Back; stage.Controls.Add(p); }
             Controls.Add(body);
             Controls.Add(top);
             BuildHome();
@@ -205,6 +210,7 @@ namespace GControl
                 using (var pen = new Pen(Theme.Line)) e.Graphics.DrawLine(pen, 0, top.Height - 1, top.Width, top.Height - 1);
             };
             top.MouseDown += Drag;
+            top.DoubleClick += (s, e) => ToggleMaximize();
 
             var tab = new Label { Text = "Dispositivos", ForeColor = Theme.Accent, Font = Theme.Bold(11f), AutoSize = true, Cursor = Cursors.Hand, BackColor = Theme.Back };
             tab.Location = new Point(92, 31);
@@ -215,27 +221,45 @@ namespace GControl
             gear.Click += (s, e) => ShowPage(settings);
             var min = new IconButton(IconButton.Kind.Min) { Size = new Size(44, 32) };
             min.Click += (s, e) => Hide();
+            max = new IconButton(IconButton.Kind.Max) { Size = new Size(44, 32) };
+            max.Click += (s, e) => ToggleMaximize();
             var close = new IconButton(IconButton.Kind.Close) { Size = new Size(44, 32) };
             close.Click += (s, e) => Hide();
-            top.Controls.AddRange(new Control[] { gear, min, close });
+            top.Controls.AddRange(new Control[] { gear, min, max, close });
             top.Resize += (s, e) =>
             {
                 close.Location = new Point(top.Width - 45, 1);
-                min.Location = new Point(top.Width - 89, 1);
-                gear.Location = new Point(top.Width - 140, 30);
+                max.Location = new Point(top.Width - 89, 1);
+                min.Location = new Point(top.Width - 133, 1);
+                gear.Location = new Point(top.Width - 140, 36);
             };
+        }
+
+        IconButton max;
+
+        // Maximiza sin tapar la barra de tareas.
+        void ToggleMaximize()
+        {
+            if (WindowState == FormWindowState.Maximized) WindowState = FormWindowState.Normal;
+            else
+            {
+                MaximizedBounds = Screen.FromHandle(Handle).WorkingArea;
+                WindowState = FormWindowState.Maximized;
+            }
+            max.Restore = WindowState == FormWindowState.Maximized;
+            max.Invalidate();
         }
 
         void Drag(object sender, MouseEventArgs e)
         {
-            if (e.Button != MouseButtons.Left) return;
+            if (e.Button != MouseButtons.Left || e.Clicks > 1 || WindowState == FormWindowState.Maximized) return;
             ReleaseCapture();
             SendMessage(Handle, 0xA1, (IntPtr)2, IntPtr.Zero);
         }
 
         void ShowPage(Panel p)
         {
-            foreach (Control c in body.Controls) c.Visible = c == p;
+            foreach (Control c in stage.Controls) c.Visible = c == p;
         }
 
         // ---------- Inicio: tarjetas ----------
@@ -392,7 +416,23 @@ namespace GControl
             y += 28;
             var side = new StepSlider { Max = 10, Location = new Point(x, y), Width = w };
             device.Controls.Add(side);
-            y += 44;
+            y += 40;
+
+            // Nivel del micrófono (ganancia de entrada de Windows).
+            Header("NIVEL DE MICRÓFONO", x, y);
+            var micValue = new Label { Text = "—", ForeColor = Theme.Text, AutoSize = false, Size = new Size(60, 22), Location = new Point(x + w - 60, y), TextAlign = ContentAlignment.MiddleRight, BackColor = Theme.Back };
+            device.Controls.Add(micValue);
+            y += 28;
+            var mic = new StepSlider { Max = 20, Location = new Point(x, y), Width = w };
+            device.Controls.Add(mic);
+            int micNow = Audio.MicLevel();
+            if (micNow >= 0) { mic.Value = (micNow + 2) / 5; micValue.Text = micNow + "%"; }
+            mic.ValueChanged += (s, e) =>
+            {
+                int v = mic.Value * 5;
+                micValue.Text = Audio.SetMicLevel(v) ? v + "%" : "—";
+            };
+            y += 40;
 
             // Iluminación de las dos zonas.
             Header("ILUMINACIÓN", x, y);
@@ -827,7 +867,8 @@ namespace GControl
 
     class IconButton : Control
     {
-        public enum Kind { Gear, Min, Close }
+        public enum Kind { Gear, Min, Max, Close }
+        public bool Restore;
         readonly Kind kind;
         bool hot;
 
@@ -851,6 +892,12 @@ namespace GControl
             using (var pen = new Pen(Theme.Text, 1.6f))
             {
                 if (kind == Kind.Min) g.DrawLine(pen, cx - 6, cy, cx + 6, cy);
+                else if (kind == Kind.Max && !Restore) g.DrawRectangle(pen, cx - 6, cy - 6, 12, 12);
+                else if (kind == Kind.Max)
+                {
+                    g.DrawRectangle(pen, cx - 6, cy - 3, 9, 9);
+                    g.DrawLines(pen, new[] { new PointF(cx - 3, cy - 3), new PointF(cx - 3, cy - 6), new PointF(cx + 6, cy - 6), new PointF(cx + 6, cy + 3), new PointF(cx + 3, cy + 3) });
+                }
                 else if (kind == Kind.Close) { g.DrawLine(pen, cx - 6, cy - 6, cx + 6, cy + 6); g.DrawLine(pen, cx + 6, cy - 6, cx - 6, cy + 6); }
                 else
                 {

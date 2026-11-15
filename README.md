@@ -6,11 +6,15 @@ App mínima y portable para el ratón **G305** (receptor LIGHTSPEED) y los auric
 
 - **Dispositivos:** tarjetas con foto, batería y estado.
 - **G733 · Botón G1:** dos modos, **Predeterminado** y **G-Shift**, con un switch para cambiar. Cada modo tiene su acción: Reproducir/Pausa, Silenciar micrófono, Siguiente/Anterior, Subir/Bajar volumen, Silenciar sonido o Ninguna. Al silenciar el micrófono sale un aviso en pantalla.
+- **G733 · Nivel de micrófono** (ganancia de entrada de Windows, 0–100 %).
 - **G733 · Tono lateral** (0–100 %) e **iluminación** de las dos zonas: Fijo, Respiración, Ciclo de color o Apagado, con color.
 - **G305 · DPI** de 200 a 12000 (pasos de 50) con atajos. La tasa de informe se muestra (el ratón la guarda en su memoria interna).
 - **Bandeja:** clic derecho muestra cada aparato con `LIGHTSPEED` y su batería, más Dispositivos, Ajustes y Salir.
+- **Ventana:** minimizar a la bandeja, maximizar (botón o doble clic en la barra) y cerrar.
 - **Ajustes:** iniciar con Windows, iniciar minimizado y buscar actualizaciones.
 - **Actualizaciones:** al abrir y cada 6 h busca una release nueva. Si hay, sale un aviso; **Actualizar** baja el `.exe`, lo reemplaza y reinicia la app.
+
+No incluye el apagado automático del G733 (el auricular no expone ese ajuste por HID++) ni Blue VO!CE (el ecualizador del micrófono de G HUB es procesamiento de audio en la PC, con su propio controlador).
 
 Cierra G HUB mientras usas esta app: si no, los dos controlan los aparatos y el G1 hace dos cosas. La app avisa si G HUB está abierto.
 
