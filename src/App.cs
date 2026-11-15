@@ -11,7 +11,7 @@ namespace GControl
 {
     static class Program
     {
-        public const string Version = "1.1.0";
+        public const string Version = "1.2.0";
 
         [STAThread]
         static void Main(string[] args)
@@ -91,7 +91,7 @@ namespace GControl
         }
     }
 
-    class MainForm : Form
+    partial class MainForm : Form
     {
         static readonly Color[] Presets =
         {
@@ -172,6 +172,9 @@ namespace GControl
             updTimer.Interval = 8000;
             updTimer.Tick += (s, e) => { updTimer.Interval = 6 * 3600 * 1000; CheckUpdate(false); };
             updTimer.Start();
+
+            // Procesado de voz guardado: arranca si estaba activo.
+            UpdateEngine(false);
         }
 
         static Icon MakeIcon(int size)
@@ -238,21 +241,37 @@ namespace GControl
         IconButton max;
 
         // Maximiza sin tapar la barra de tareas.
+        bool maximized;
+        Rectangle normalBounds;
+        System.Windows.Forms.Timer anim;
+
+        // Maximiza sin tapar la barra de tareas, con una animación corta.
         void ToggleMaximize()
         {
-            if (WindowState == FormWindowState.Maximized) WindowState = FormWindowState.Normal;
-            else
-            {
-                MaximizedBounds = Screen.FromHandle(Handle).WorkingArea;
-                WindowState = FormWindowState.Maximized;
-            }
-            max.Restore = WindowState == FormWindowState.Maximized;
+            Rectangle from = Bounds, to;
+            if (maximized) to = normalBounds;
+            else { normalBounds = Bounds; to = Screen.FromHandle(Handle).WorkingArea; }
+            maximized = !maximized;
+            max.Restore = maximized;
             max.Invalidate();
+            if (anim != null) anim.Dispose();
+            var start = DateTime.Now;
+            anim = new System.Windows.Forms.Timer { Interval = 10 };
+            anim.Tick += (s, e) =>
+            {
+                double t = Math.Min(1, (DateTime.Now - start).TotalMilliseconds / 220);
+                double k = 1 - Math.Pow(1 - t, 3); // suave al final
+                Bounds = new Rectangle(
+                    (int)(from.X + (to.X - from.X) * k), (int)(from.Y + (to.Y - from.Y) * k),
+                    (int)(from.Width + (to.Width - from.Width) * k), (int)(from.Height + (to.Height - from.Height) * k));
+                if (t >= 1) { anim.Stop(); Bounds = to; }
+            };
+            anim.Start();
         }
 
         void Drag(object sender, MouseEventArgs e)
         {
-            if (e.Button != MouseButtons.Left || e.Clicks > 1 || WindowState == FormWindowState.Maximized) return;
+            if (e.Button != MouseButtons.Left || e.Clicks > 1 || maximized) return;
             ReleaseCapture();
             SendMessage(Handle, 0xA1, (IntPtr)2, IntPtr.Zero);
         }
@@ -368,6 +387,10 @@ namespace GControl
         {
             NewDevicePage("G733", imgHeadset, () => headsetLevel);
             int x = 520, y = 24, w = 480;
+            var micPage = new FlatButton { Text = "Micrófono y voz  ›", Width = 170, Location = new Point(196, 22) };
+            micPage.Click += (s, e) => OpenMic();
+            device.Controls.Add(micPage);
+            var statusOff = new Label { Text = "", ForeColor = Theme.Dim, AutoSize = false, Size = new Size(w - 160, 34), BackColor = Theme.Back, TextAlign = ContentAlignment.MiddleLeft };
 
             // Asignaciones: G1 con dos modos, como Predeterminado / G-SHIFT.
             Header("ASIGNACIONES · BOTÓN G1", x, y);
@@ -418,21 +441,25 @@ namespace GControl
             device.Controls.Add(side);
             y += 40;
 
-            // Nivel del micrófono (ganancia de entrada de Windows).
-            Header("NIVEL DE MICRÓFONO", x, y);
-            var micValue = new Label { Text = "—", ForeColor = Theme.Text, AutoSize = false, Size = new Size(60, 22), Location = new Point(x + w - 60, y), TextAlign = ContentAlignment.MiddleRight, BackColor = Theme.Back };
-            device.Controls.Add(micValue);
+            // Apagado automático tras minutos sin sonido.
+            Header("APAGADO AUTOMÁTICO", x, y);
             y += 28;
-            var mic = new StepSlider { Max = 20, Location = new Point(x, y), Width = w };
-            device.Controls.Add(mic);
-            int micNow = Audio.MicLevel();
-            if (micNow >= 0) { mic.Value = (micNow + 2) / 5; micValue.Text = micNow + "%"; }
-            mic.ValueChanged += (s, e) =>
+            int[] offs = { 0, 5, 10, 15, 30 };
+            var offButtons = new FlatButton[offs.Length];
+            int obw = (w - (offs.Length - 1) * 8) / offs.Length;
+            for (int i = 0; i < offs.Length; i++)
             {
-                int v = mic.Value * 5;
-                micValue.Text = Audio.SetMicLevel(v) ? v + "%" : "—";
-            };
-            y += 40;
+                int m = offs[i], idx = i;
+                var b = new FlatButton { Text = m == 0 ? "Nunca" : m + " min", Size = new Size(obw, 32), Location = new Point(x + i * (obw + 8), y) };
+                b.Click += (s, e) =>
+                {
+                    Mark(offButtons, idx);
+                    Device(statusOff, () => headset.Ensure() && headset.SetPowerOff(m), m == 0 ? "Apagado automático desactivado." : "Se apaga tras " + m + " min sin sonido.");
+                };
+                offButtons[i] = b;
+                device.Controls.Add(b);
+            }
+            y += 42;
 
             // Iluminación de las dos zonas.
             Header("ILUMINACIÓN", x, y);
@@ -471,7 +498,8 @@ namespace GControl
                 device.Controls.Add(sw);
             }
             y += 42;
-            var status = new Label { Text = "", ForeColor = Theme.Dim, AutoSize = false, Size = new Size(w - 160, 34), Location = new Point(x, y), TextAlign = ContentAlignment.MiddleLeft, BackColor = Theme.Back };
+            var status = statusOff;
+            status.Location = new Point(x, y);
             var apply = new FlatButton { Text = "Aplicar luces", Filled = true, Size = new Size(150, 36), Location = new Point(x + w - 150, y) };
             device.Controls.Add(status);
             device.Controls.Add(apply);
@@ -502,13 +530,14 @@ namespace GControl
 
             ThreadPool.QueueUserWorkItem(_ =>
             {
-                int v = -1;
-                try { if (headset.Ensure()) v = headset.Sidetone(); } catch { }
+                int v = -1, off = -1;
+                try { if (headset.Ensure()) { v = headset.Sidetone(); off = headset.PowerOff(); } } catch { }
                 if (!IsHandleCreated) return;
                 BeginInvoke(new Action(() =>
                 {
                     if (side.IsDisposed) return;
                     if (v >= 0) side.Value = (v + 5) / 10;
+                    Mark(offButtons, Array.IndexOf(offs, off));
                     sideValue.Text = v >= 0 ? side.Value * 10 + "%" : "—";
                     if (v < 0) status.Text = "No se pudo leer el G733.";
                     loading = false;
@@ -688,7 +717,7 @@ namespace GControl
         void ShowWindow()
         {
             Show();
-            WindowState = FormWindowState.Normal;
+            if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
             Activate();
             Poll();
         }
@@ -711,6 +740,7 @@ namespace GControl
             tray.Visible = false;
             // Devolver el G1 a su función de fábrica.
             try { if (headset.Dev.IsOpen) headset.DivertGKey(false); } catch { }
+            engine.Dispose();
             headset.Dev.Dispose();
             mouse.Dev.Dispose();
             base.OnFormClosing(e);
@@ -791,6 +821,7 @@ namespace GControl
             ShowPage(home); save(this, "home.png");
             OpenHeadset(); Application.DoEvents(); save(this, "g733.png");
             OpenMouse(); Application.DoEvents(); save(this, "g305.png");
+            OpenMic(); Application.DoEvents(); save(this, "mic.png");
             ShowPage(settings); save(this, "settings.png");
             save(popup, "tray.png");
             var o = new Osd();

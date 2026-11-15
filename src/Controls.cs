@@ -233,4 +233,121 @@ namespace GControl
             using (var b = new SolidBrush(Color)) g.FillEllipse(b, r);
         }
     }
+
+    // Casilla con texto, como las de G HUB.
+    class Check : Painted
+    {
+        bool on;
+        public event EventHandler Changed;
+        public bool On
+        {
+            get { return on; }
+            set { if (on == value) return; on = value; Invalidate(); if (Changed != null) Changed(this, EventArgs.Empty); }
+        }
+        readonly Font font = Theme.Bold(9f);
+        public Check() { Cursor = Cursors.Hand; Height = 22; }
+        protected override void OnClick(EventArgs e) { On = !On; base.OnClick(e); }
+        protected override void OnTextChanged(EventArgs e) { Invalidate(); base.OnTextChanged(e); }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            Prep(g);
+            g.Clear(Parent != null ? Parent.BackColor : Theme.Back);
+            var box = new RectangleF(1, Height / 2f - 7, 14, 14);
+            using (var p = Art.Round(box, 3))
+            {
+                using (var b = new SolidBrush(on ? Theme.Accent : Theme.Track)) g.FillPath(b, p);
+            }
+            if (on)
+                using (var pen = new Pen(Color.White, 2f) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                    g.DrawLines(pen, new[] { new PointF(box.X + 3.5f, box.Y + 7), new PointF(box.X + 6, box.Y + 10), new PointF(box.X + 11, box.Y + 4) });
+            Draw(g, Text.ToUpperInvariant(), font, Theme.Text, new RectangleF(22, 0, Width - 22, Height));
+        }
+    }
+
+    // Deslizador continuo (horizontal o vertical) con valor real entre Min y Max.
+    class ValueSlider : Painted
+    {
+        float min, max = 1, value;
+        public bool Vertical;
+        public float Step = 1;
+        public event EventHandler ValueChanged;
+        public float Min { get { return min; } set { min = value; Invalidate(); } }
+        public float Max { get { return max; } set { max = value; Invalidate(); } }
+        public float Value
+        {
+            get { return value; }
+            set
+            {
+                float v = Math.Max(min, Math.Min(max, (float)Math.Round(value / Step) * Step));
+                if (v == this.value) return;
+                this.value = v;
+                Invalidate();
+                if (ValueChanged != null) ValueChanged(this, EventArgs.Empty);
+            }
+        }
+
+        public ValueSlider() { Cursor = Cursors.Hand; }
+
+        float Frac { get { return max == min ? 0 : (value - min) / (max - min); } }
+        float Len { get { return (Vertical ? Height : Width) - 16; } }
+
+        protected override void OnMouseDown(MouseEventArgs e) { Pick(e.Location); Capture = true; }
+        protected override void OnMouseMove(MouseEventArgs e) { if (Capture) Pick(e.Location); }
+        protected override void OnMouseUp(MouseEventArgs e) { Capture = false; }
+        protected override void OnMouseWheel(MouseEventArgs e) { Value += Math.Sign(e.Delta) * Step; }
+
+        void Pick(Point p)
+        {
+            float f = Vertical ? 1 - (p.Y - 8) / Len : (p.X - 8) / Len;
+            Value = min + Math.Max(0, Math.Min(1, f)) * (max - min);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            Prep(g);
+            g.Clear(Parent != null ? Parent.BackColor : Theme.Back);
+            float pos = 8 + Frac * Len;
+            using (var t = new Pen(Theme.Track, 3))
+            using (var a = new Pen(Enabled ? Theme.Accent : Theme.Dim, 3))
+            {
+                if (Vertical)
+                {
+                    float cx = Width / 2f, y = Height - pos, zero = Height - (8 + (min < 0 && max > 0 ? -min / (max - min) : 0) * Len);
+                    g.DrawLine(t, cx, 8, cx, Height - 8);
+                    g.DrawLine(a, cx, zero, cx, y);
+                    g.FillEllipse(Brushes.White, cx - 7, y - 7, 14, 14);
+                }
+                else
+                {
+                    float cy = Height / 2f;
+                    g.DrawLine(t, 8, cy, Width - 8, cy);
+                    g.DrawLine(a, 8, cy, pos, cy);
+                    g.FillEllipse(Brushes.White, pos - 7, cy - 7, 14, 14);
+                }
+            }
+        }
+    }
+
+    // Medidor de nivel con rayitas, como el de G HUB.
+    class Meter : Painted
+    {
+        float level;
+        public float Level { get { return level; } set { level = value; Invalidate(); } }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.Clear(Parent != null ? Parent.BackColor : Theme.Back);
+            int ticks = Math.Max(4, Width / 9);
+            double db = 20 * Math.Log10(Math.Max(level, 1e-5));
+            int lit = (int)Math.Round(Math.Max(0, Math.Min(1, (db + 60) / 60)) * ticks);
+            using (var on = new SolidBrush(Theme.Accent))
+            using (var off = new SolidBrush(Theme.Track))
+                for (int i = 0; i < ticks; i++)
+                    g.FillRectangle(i < lit ? on : off, i * (Width / (float)ticks), 0, 2, Height);
+        }
+    }
 }

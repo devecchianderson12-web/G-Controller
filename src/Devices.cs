@@ -76,6 +76,15 @@ namespace GControl
         // El botón G1 llega como evento en vez de su función de fábrica.
         public bool DivertGKey(bool on) { return Dev.Call(0x8010, 2, (byte)(on ? 1 : 0)) != null; }
 
+        // Apagado automático sin sonido, en minutos (0 = nunca). 0x1F20 fn 1/2, probado en el G733.
+        public int PowerOff()
+        {
+            var r = Dev.Call(0x1F20, 1);
+            return r == null ? -1 : r[0];
+        }
+
+        public bool SetPowerOff(int minutes) { return Dev.Call(0x1F20, 2, (byte)Math.Max(0, Math.Min(90, minutes))) != null; }
+
         public int Sidetone()
         {
             var r = Dev.Call(0x8300, 0);
