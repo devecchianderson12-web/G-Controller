@@ -11,7 +11,7 @@ namespace GControl
 {
     static class Program
     {
-        public const string Version = "1.3.0";
+        public const string Version = "1.4.0";
 
         [STAThread]
         static void Main(string[] args)
@@ -26,12 +26,21 @@ namespace GControl
             bool fresh;
             using (var m = new Mutex(true, "GController.single", out fresh))
             {
-                if (!fresh) return;
+                if (!fresh)
+                {
+                    // Ya está abierta (quizá solo en la bandeja): pedirle que muestre su ventana.
+                    AllowSetForegroundWindow(-1); // que la otra copia pueda pasar al frente
+                    PostMessage((IntPtr)0xFFFF, MainForm.WM_SHOWME, IntPtr.Zero, IntPtr.Zero);
+                    return;
+                }
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 Application.Run(new MainForm());
             }
         }
+
+        [DllImport("user32.dll")] static extern bool PostMessage(IntPtr h, int msg, IntPtr w, IntPtr l);
+        [DllImport("user32.dll")] static extern bool AllowSetForegroundWindow(int pid);
 
         public static Image Resource(string name)
         {
@@ -66,6 +75,13 @@ namespace GControl
         public static bool GShift { get { return Get("GShift", 0) == 1; } set { Set("GShift", value ? 1 : 0); } }
         public static int G1Normal { get { return Get("G1Normal", 1); } set { Set("G1Normal", value); } }
         public static int G1Shift { get { return Get("G1Shift", GAction.MicMute); } set { Set("G1Shift", value); } }
+
+        // Lo último aplicado a cada aparato (-1 = nunca). Se vuelve a aplicar cada vez que el aparato se conecta.
+        public static int LightEffect { get { return Get("LightEffect", -1); } set { Set("LightEffect", value); } }
+        public static int LightColor { get { return Get("LightColor", 0); } set { Set("LightColor", value); } }
+        public static int Sidetone { get { return Get("Sidetone", -1); } set { Set("Sidetone", value); } }
+        public static int PowerOff { get { return Get("PowerOff", -1); } set { Set("PowerOff", value); } }
+        public static int Dpi { get { return Get("Dpi", -1); } set { Set("Dpi", value); } }
 
         public static bool StartWithWindows
         {
@@ -481,6 +497,7 @@ namespace GControl
                 b.Click += (s, e) =>
                 {
                     Mark(offButtons, idx);
+                    Settings.PowerOff = m;
                     Device(statusOff, () => headset.Ensure() && headset.SetPowerOff(m), m == 0 ? "Apagado automático desactivado." : "Se apaga tras " + m + " min sin sonido.");
                 };
                 offButtons[i] = b;
@@ -492,8 +509,11 @@ namespace GControl
             Header("ILUMINACIÓN", x, y);
             y += 30;
             var effects = new FlatButton[G733.Effects.Length];
-            int effect = 0;
-            Color color = Presets[0];
+            // Mostrar lo último guardado.
+            int effect = Math.Max(0, Settings.LightEffect);
+            Color color = Settings.LightEffect >= 0 ? Color.FromArgb(Settings.LightColor) : Presets[0];
+            int savedSwatch = Array.FindIndex(Presets, p => p.ToArgb() == color.ToArgb());
+            if (savedSwatch < 0) savedSwatch = Presets.Length;
             int ebw = (w - 3 * 8) / 4;
             for (int i = 0; i < effects.Length; i++)
             {
@@ -503,13 +523,13 @@ namespace GControl
                 effects[i] = b;
                 device.Controls.Add(b);
             }
-            Mark(effects, 0);
+            Mark(effects, effect);
             y += 42;
             var swatches = new Swatch[Presets.Length + 1];
             for (int i = 0; i <= Presets.Length; i++)
             {
                 int idx = i;
-                var sw = new Swatch { Color = i < Presets.Length ? Presets[i] : Color.Black, Custom = i == Presets.Length, Selected = i == 0, Location = new Point(x + i * 34, y) };
+                var sw = new Swatch { Color = i < Presets.Length ? Presets[i] : (savedSwatch == Presets.Length ? color : Color.Black), Custom = i == Presets.Length && savedSwatch != Presets.Length, Selected = i == savedSwatch, Location = new Point(x + i * 34, y) };
                 sw.Click += (s, e) =>
                 {
                     if (idx == Presets.Length)
@@ -532,9 +552,11 @@ namespace GControl
             device.Controls.Add(apply);
             apply.Click += (s, e) =>
             {
-                var fx = G733.Effects[effect];
                 var c = color;
-                Device(status, () => headset.Ensure() && headset.SetLight(fx.Id, c, 4000, 0) && headset.SetLight(fx.Id, c, 4000, 1), "Luces aplicadas.");
+                Settings.LightEffect = effect;
+                Settings.LightColor = c.ToArgb();
+                int fxIndex = effect;
+                Device(status, () => headset.Ensure() && ApplyLight(fxIndex, c), "Luces aplicadas.");
             };
 
             // El tono lateral se aplica al soltar (sin mandar un comando por cada paso).
@@ -551,6 +573,7 @@ namespace GControl
             {
                 sideTimer.Stop();
                 int v = side.Value * 10;
+                Settings.Sidetone = v;
                 Device(status, () => headset.Ensure() && headset.SetSidetone(v), "Tono lateral: " + v + "%.");
             };
             device.Disposed += (s, e) => sideTimer.Dispose();
@@ -628,6 +651,7 @@ namespace GControl
             {
                 dpiTimer.Stop();
                 int v = 200 + dpi.Value * 50;
+                Settings.Dpi = v;
                 Device(status, () => mouse.Ensure() && mouse.SetDpi(v), "DPI: " + v + ".");
             };
             device.Disposed += (s, e) => dpiTimer.Dispose();
@@ -747,6 +771,7 @@ namespace GControl
             Show();
             if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
             Activate();
+            SetForegroundWindow(Handle);
             Poll();
         }
 
@@ -793,23 +818,51 @@ namespace GControl
                     {
                         hs = headset.Battery(out charging);
                         if (hs < 0) headset.Dev.Close();
-                        else headset.DivertGKey(true); // el auricular olvida esto al apagarse
+                        else
+                        {
+                            headset.DivertGKey(true); // el auricular olvida esto al apagarse
+                            if (!headsetOnline) ApplyHeadset(); // recién encendido: reponer lo guardado
+                        }
                     }
                 }
-                catch { headset.Dev.Close(); }
+                catch { headset.Dev.Close(); hs = -1; }
+                headsetOnline = hs >= 0;
                 try
                 {
                     if (mouse.Ensure())
                     {
                         ms = mouse.Battery(out charging);
                         if (ms < 0) mouse.Dev.Close();
+                        else if (!mouseOnline && Settings.Dpi > 0) mouse.SetDpi(Settings.Dpi);
                     }
                 }
-                catch { mouse.Dev.Close(); }
+                catch { mouse.Dev.Close(); ms = -1; }
+                mouseOnline = ms >= 0;
                 bool ghub = GHubRunning();
                 busy = 0;
+                // Si falta un aparato se revisa cada 3 s para reponer su config apenas se encienda.
+                int next = headsetOnline && mouseOnline ? 30000 : 3000;
+                if (IsHandleCreated) BeginInvoke(new Action(() => { if (timer.Interval != next) timer.Interval = next; }));
                 if (IsHandleCreated) BeginInvoke(new Action(() => Render(hs, ms, ghub)));
             });
+        }
+
+        bool headsetOnline, mouseOnline;
+
+        // Luces en las dos zonas del G733.
+        bool ApplyLight(int effectIndex, Color c)
+        {
+            if (effectIndex < 0 || effectIndex >= G733.Effects.Length) return false;
+            ushort id = G733.Effects[effectIndex].Id;
+            return headset.SetLight(id, c, 4000, 0) && headset.SetLight(id, c, 4000, 1);
+        }
+
+        // El G733 vuelve a su config de fábrica al encenderse: se repone todo lo guardado.
+        void ApplyHeadset()
+        {
+            if (Settings.LightEffect >= 0) ApplyLight(Settings.LightEffect, Color.FromArgb(Settings.LightColor));
+            if (Settings.Sidetone >= 0) headset.SetSidetone(Settings.Sidetone);
+            if (Settings.PowerOff >= 0) headset.SetPowerOff(Settings.PowerOff);
         }
 
         static string Pct(int v) { return v < 0 ? "sin conexión" : v + "%"; }
@@ -885,8 +938,19 @@ namespace GControl
         // Sin borde visible: el tamaño de ventana es igual al del área cliente.
         protected override Size SizeFromClientSize(Size clientSize) { return clientSize; }
 
+        // Otra copia de la app pide mostrar la ventana; el Explorador avisa que se reinició la barra de tareas.
+        public static readonly int WM_SHOWME = RegisterWindowMessage("GController.ShowMe");
+        static readonly int WM_TASKBARCREATED = RegisterWindowMessage("TaskbarCreated");
+
         protected override void WndProc(ref Message m)
         {
+            if (m.Msg == WM_SHOWME && WM_SHOWME != 0) { ShowWindow(); return; }
+            if (m.Msg == WM_TASKBARCREATED && WM_TASKBARCREATED != 0)
+            {
+                // El Explorador se reinició: volver a poner el icono en la bandeja.
+                tray.Visible = false;
+                tray.Visible = true;
+            }
             const int WM_NCCALCSIZE = 0x83, WM_NCHITTEST = 0x84, WM_WINDOWPOSCHANGING = 0x46;
             bool restoring = lastState == FormWindowState.Maximized || Environment.TickCount < restoreUntil;
             if (m.Msg == WM_WINDOWPOSCHANGING && restoring && !IsZoomed(Handle) && !IsIconic(Handle))
@@ -930,6 +994,7 @@ namespace GControl
         [DllImport("user32.dll")] static extern bool ReleaseCapture();
         [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr h, int msg, IntPtr w, IntPtr l);
         [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int RegisterWindowMessage(string name);
     }
 
     // Aviso flotante abajo al centro (p. ej. "Micrófono silenciado"). No roba el foco.
