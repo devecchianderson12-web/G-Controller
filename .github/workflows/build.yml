@@ -1,4 +1,5 @@
-# Compila GController.exe y publica una release cuando sube la versión.
+# Compila GController.exe (portable) y GController-Setup.exe (instalador) en cada push a main
+# y los sube a la release de la versión actual (la crea si no existe, si existe la actualiza).
 # Para sacar una update: cambiar Version en src/App.cs y hacer push a main.
 name: build
 
@@ -23,19 +24,22 @@ jobs:
           $m = Select-String -Path src/App.cs -Pattern 'Version = "([0-9.]+)"'
           $v = $m.Matches[0].Groups[1].Value
           "version=$v" >> $env:GITHUB_OUTPUT
-          gh release view "v$v" *> $null
-          if ($LASTEXITCODE -eq 0) { "exists=true" >> $env:GITHUB_OUTPUT } else { "exists=false" >> $env:GITHUB_OUTPUT }
-          exit 0
-        env:
-          GH_TOKEN: ${{ github.token }}
 
-      - name: Compilar
+      - name: Compilar portable e instalador
         shell: cmd
         run: build.cmd
 
       - name: Publicar release
-        if: steps.ver.outputs.exists == 'false'
         shell: pwsh
-        run: gh release create "v${{ steps.ver.outputs.version }}" GController.exe --title "v${{ steps.ver.outputs.version }}" --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v${{ steps.ver.outputs.version }}"
+          $files = @("GController.exe", "GController-Setup.exe")
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag @files --clobber
+          } else {
+            gh release create $tag @files --title $tag --generate-notes --latest
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
