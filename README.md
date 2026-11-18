@@ -1,6 +1,6 @@
 # G Controller
 
-App mínima y portable para el ratón **G305** (receptor LIGHTSPEED) y los auriculares **G733**, al estilo de G HUB. Un solo `.exe`, sin instalar.
+App mínima para el ratón **G305** (receptor LIGHTSPEED) y los auriculares **G733**, al estilo de G HUB. Portable (un solo `.exe`) o con instalador.
 
 ## Qué hace
 
@@ -19,8 +19,12 @@ Cierra G HUB mientras usas esta app: si no, los dos controlan los aparatos y el 
 
 ## Uso
 
-1. Baja `GController.exe` de [Releases](../../releases).
-2. Ábrelo.
+En [Releases](../../releases) hay dos opciones:
+
+- **Instalador:** `GController-Setup.exe`. Instala para tu usuario (sin pedir administrador), crea accesos en el menú Inicio y, si querés, en el escritorio. Se desinstala desde Configuración → Aplicaciones sin dejar rastros.
+- **Portable:** `GController.exe`. Un solo archivo, se abre directo.
+
+Si algo falla por dentro, la app no se cierra: anota el error en `%LOCALAPPDATA%\GController\errores.log` y sigue funcionando.
 
 Requiere .NET Framework 4.x (ya viene con Windows 10 y 11).
 
@@ -35,7 +39,7 @@ build.cmd
 1. Cambia `Version` en `src/App.cs` (por ejemplo `1.0.1`).
 2. Haz push a `main`.
 
-GitHub Actions (`.github/workflows/build.yml`) compila el `.exe` y crea la release `v1.0.1`. Las apps abiertas la ven y muestran el aviso para actualizar.
+GitHub Actions (`.github/workflows/build.yml`) compila el portable y el instalador y los sube a la release `v1.0.1` (en cada push la actualiza). Las apps abiertas la ven y muestran el aviso para actualizar.
 
 ## Protocolo
 

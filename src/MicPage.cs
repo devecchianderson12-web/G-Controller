@@ -188,7 +188,7 @@ namespace GControl
             {
                 if (sample == null) return;
                 play.Enabled = false; rec.Enabled = false;
-                VoiceEngine.Play(sample, () => BeginInvoke(new Action(() => { if (!play.IsDisposed) { play.Enabled = true; rec.Enabled = true; } })));
+                VoiceEngine.Play(sample, () => Ui(new Action(() => { if (!play.IsDisposed) { play.Enabled = true; rec.Enabled = true; } })));
             };
             y += 30;
 

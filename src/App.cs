@@ -11,7 +11,11 @@ namespace GControl
 {
     static class Program
     {
-        public const string Version = "1.4.0";
+        public const string Version = "1.5.0";
+
+        // true si la app se reabrió sola tras un fallo: arranca oculta en la bandeja.
+        public static bool Restarted;
+        static readonly DateTime started = DateTime.UtcNow;
 
         [STAThread]
         static void Main(string[] args)
@@ -23,9 +27,22 @@ namespace GControl
                 using (var f = new MainForm()) f.Snap(args[1]);
                 return;
             }
+            Restarted = args.Length > 0 && args[0] == "--restart";
+
+            // Un error inesperado nunca debe cerrar la app: se anota y se sigue.
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            Application.ThreadException += (s, e) => Log(e.Exception);
+            AppDomain.CurrentDomain.UnhandledException += (s, e) => Crashed(e.ExceptionObject as Exception);
+
             bool fresh;
             using (var m = new Mutex(true, "GController.single", out fresh))
             {
+                if (!fresh && Restarted)
+                {
+                    // La copia anterior se está cerrando: esperar a que suelte el mutex.
+                    try { fresh = m.WaitOne(15000); }
+                    catch (AbandonedMutexException) { fresh = true; }
+                }
                 if (!fresh)
                 {
                     // Ya está abierta (quizá solo en la bandeja): pedirle que muestre su ventana.
@@ -37,6 +54,28 @@ namespace GControl
                 Application.SetCompatibleTextRenderingDefault(false);
                 Application.Run(new MainForm());
             }
+        }
+
+        // Último recurso: si un hilo falla igual, se anota y la app se reabre sola en la bandeja.
+        static void Crashed(Exception e)
+        {
+            Log(e);
+            if ((DateTime.UtcNow - started).TotalSeconds < 60) return; // evitar un bucle si falla al abrir
+            try { Process.Start(new ProcessStartInfo(Application.ExecutablePath, "--restart") { UseShellExecute = false }); } catch { }
+        }
+
+        // Errores en %LOCALAPPDATA%\GController\errores.log (máx. ~200 KB).
+        public static void Log(Exception e)
+        {
+            try
+            {
+                string dir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GController");
+                System.IO.Directory.CreateDirectory(dir);
+                string file = System.IO.Path.Combine(dir, "errores.log");
+                if (System.IO.File.Exists(file) && new System.IO.FileInfo(file).Length > 200000) System.IO.File.Delete(file);
+                System.IO.File.AppendAllText(file, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  v" + Version + "\r\n" + e + "\r\n\r\n");
+            }
+            catch { }
         }
 
         [DllImport("user32.dll")] static extern bool PostMessage(IntPtr h, int msg, IntPtr w, IntPtr l);
@@ -177,7 +216,7 @@ namespace GControl
             };
             tray.Visible = true;
 
-            headset.GKey += down => { if (down && IsHandleCreated) BeginInvoke(new Action(RunG1)); };
+            headset.GKey += down => { if (down && IsHandleCreated) Ui(new Action(RunG1)); };
 
             Settings.FixRunPath();
             timer.Interval = 30000;
@@ -416,12 +455,12 @@ namespace GControl
         void Device(Label status, Func<bool> work, string ok)
         {
             status.Text = "Aplicando…";
-            ThreadPool.QueueUserWorkItem(_ =>
+            Bg(() =>
             {
                 bool done;
                 try { done = work(); } catch { done = false; }
                 if (!IsHandleCreated) return;
-                BeginInvoke(new Action(() => { if (!status.IsDisposed) status.Text = done ? ok : "No responde. ¿Está encendido?"; }));
+                Ui(new Action(() => { if (!status.IsDisposed) status.Text = done ? ok : "No responde. ¿Está encendido?"; }));
             });
         }
 
@@ -578,12 +617,12 @@ namespace GControl
             };
             device.Disposed += (s, e) => sideTimer.Dispose();
 
-            ThreadPool.QueueUserWorkItem(_ =>
+            Bg(() =>
             {
                 int v = -1, off = -1;
                 try { if (headset.Ensure()) { v = headset.Sidetone(); off = headset.PowerOff(); } } catch { }
                 if (!IsHandleCreated) return;
-                BeginInvoke(new Action(() =>
+                Ui(new Action(() =>
                 {
                     if (side.IsDisposed) return;
                     if (v >= 0) side.Value = (v + 5) / 10;
@@ -656,12 +695,12 @@ namespace GControl
             };
             device.Disposed += (s, e) => dpiTimer.Dispose();
 
-            ThreadPool.QueueUserWorkItem(_ =>
+            Bg(() =>
             {
                 int d = -1, r = -1;
                 try { if (mouse.Ensure()) { d = mouse.Dpi(); r = mouse.Rate(); } } catch { }
                 if (!IsHandleCreated) return;
-                BeginInvoke(new Action(() =>
+                Ui(new Action(() =>
                 {
                     if (dpi.IsDisposed) return;
                     if (d > 0) { dpi.Value = (d - 200) / 50; dpiValue.Text = d + " DPI"; Mark(presets, Array.IndexOf(DpiPresets, d)); }
@@ -713,11 +752,11 @@ namespace GControl
         void CheckUpdate(bool manual)
         {
             if (snapping || (toast != null && !toast.IsDisposed)) return;
-            ThreadPool.QueueUserWorkItem(_ =>
+            Bg(() =>
             {
                 var r = Updater.Check();
                 if (!IsHandleCreated) return;
-                BeginInvoke(new Action(() =>
+                Ui(new Action(() =>
                 {
                     if (r != null) ShowToast(r);
                     else if (manual) updStatus.Text = "Ya tienes la última versión.";
@@ -729,10 +768,10 @@ namespace GControl
         {
             if (toast != null && !toast.IsDisposed) return;
             toast = new UpdateToast(r);
-            toast.UpdateClicked += (s, e) => ThreadPool.QueueUserWorkItem(_ =>
+            toast.UpdateClicked += (s, e) => Bg(() =>
             {
                 string err = Updater.Prepare(r, Application.ExecutablePath);
-                BeginInvoke(new Action(() =>
+                Ui(new Action(() =>
                 {
                     if (err == null) Quit();
                     else toast.Fail(err);
@@ -746,7 +785,7 @@ namespace GControl
         protected override void SetVisibleCore(bool value)
         {
             // Primera vez: respetar "iniciar minimizado".
-            if (!IsHandleCreated && Settings.StartMinimized)
+            if (!IsHandleCreated && (Settings.StartMinimized || Program.Restarted))
             {
                 CreateHandle();
                 value = false;
@@ -808,7 +847,7 @@ namespace GControl
         void Poll()
         {
             if (snapping || Interlocked.Exchange(ref busy, 1) == 1) return;
-            ThreadPool.QueueUserWorkItem(_ =>
+            Bg(() =>
             {
                 int hs = -1, ms = -1;
                 bool charging;
@@ -838,13 +877,32 @@ namespace GControl
                 }
                 catch { mouse.Dev.Close(); ms = -1; }
                 mouseOnline = ms >= 0;
-                bool ghub = GHubRunning();
+                bool ghub = false;
+                try { ghub = GHubRunning(); } catch { }
                 busy = 0;
                 // Si falta un aparato se revisa cada 3 s para reponer su config apenas se encienda.
                 int next = headsetOnline && mouseOnline ? 30000 : 3000;
-                if (IsHandleCreated) BeginInvoke(new Action(() => { if (timer.Interval != next) timer.Interval = next; }));
-                if (IsHandleCreated) BeginInvoke(new Action(() => Render(hs, ms, ghub)));
+                Ui(new Action(() => { if (timer.Interval != next) timer.Interval = next; }));
+                Ui(new Action(() => Render(hs, ms, ghub)));
+            }, () => busy = 0);
+        }
+
+        // Trabajo en segundo plano: un error ahí no puede cerrar la app. "after" corre siempre al final.
+        static void Bg(Action work, Action after = null)
+        {
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try { work(); }
+                catch (Exception e) { Program.Log(e); }
+                finally { if (after != null) after(); }
             });
+        }
+
+        // Pasa algo al hilo de la ventana sin fallar si la ventana se está cerrando o recreando.
+        void Ui(Action a)
+        {
+            try { if (IsHandleCreated && !IsDisposed) BeginInvoke(new Action(() => { try { a(); } catch (Exception e) { Program.Log(e); } })); }
+            catch { }
         }
 
         bool headsetOnline, mouseOnline;

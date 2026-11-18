@@ -46,23 +46,31 @@ namespace GControl
             }
         }
 
+        // Termina cuando se cierra el aparato. Si el handle se cierra entre dos lecturas, ReadFile
+        // tira ObjectDisposedException: antes eso mataba la app entera (hilo sin try).
         void ReadLoop(SafeFileHandle h)
         {
-            while (true)
+            try
             {
-                var b = new byte[20];
-                int n;
-                if (!Native.ReadFile(h, b, 20, out n, IntPtr.Zero) || n == 0) break;
-                if (b[0] != Long || b[1] != Device) continue;
-                if ((b[3] & 0x0F) == 0 && b[2] != 0xFF)
+                while (!h.IsClosed)
                 {
-                    var data = new byte[16];
-                    Array.Copy(b, 4, data, 0, 16);
-                    var ev = Notification;
-                    if (ev != null) ev(b[2], (byte)(b[3] >> 4), data);
+                    var b = new byte[20];
+                    int n;
+                    if (!Native.ReadFile(h, b, 20, out n, IntPtr.Zero) || n == 0) break;
+                    if (b[0] != Long || b[1] != Device) continue;
+                    if ((b[3] & 0x0F) == 0 && b[2] != 0xFF)
+                    {
+                        var data = new byte[16];
+                        Array.Copy(b, 4, data, 0, 16);
+                        var ev = Notification;
+                        try { if (ev != null) ev(b[2], (byte)(b[3] >> 4), data); }
+                        catch (Exception e) { Program.Log(e); }
+                    }
+                    else inbox.Add(b);
                 }
-                else inbox.Add(b);
             }
+            catch (ObjectDisposedException) { }
+            catch (Exception e) { Program.Log(e); }
         }
 
         public void Close()

@@ -340,7 +340,11 @@ namespace GControl
             Stop();
             Error = null;
             running = true;
-            thread = new Thread(() => Loop(outDevice)) { IsBackground = true, Priority = ThreadPriority.AboveNormal };
+            thread = new Thread(() =>
+            {
+                try { Loop(outDevice); }
+                catch (Exception e) { Program.Log(e); Error = "El procesado de voz se detuvo por un error."; running = false; }
+            }) { IsBackground = true, Priority = ThreadPriority.AboveNormal };
             thread.Start();
         }
 
@@ -433,21 +437,27 @@ namespace GControl
         {
             new Thread(() =>
             {
-                var fmt = Wave.Format(VoiceDsp.Rate);
-                IntPtr h;
-                if (audio == null || audio.Length == 0 || Wave.waveOutOpen(out h, -1, ref fmt, IntPtr.Zero, IntPtr.Zero, 0) != 0) { done(); return; }
-                var b = new Wave.Buffer(audio.Length * 2);
-                var pcm = new short[audio.Length];
-                for (int i = 0; i < audio.Length; i++) pcm[i] = (short)(Math.Max(-1, Math.Min(1, audio[i])) * 32767);
-                Marshal.Copy(pcm, 0, b.Data, pcm.Length);
-                b.PrepareOut(h);
-                b.Write(h, pcm.Length * 2);
-                while (!b.Done) Thread.Sleep(20);
-                b.UnprepareOut(h);
-                Wave.waveOutClose(h);
-                b.Free_();
-                done();
+                try { PlayNow(audio); }
+                catch (Exception e) { Program.Log(e); }
+                try { done(); } catch (Exception e) { Program.Log(e); }
             }) { IsBackground = true }.Start();
+        }
+
+        static void PlayNow(float[] audio)
+        {
+            var fmt = Wave.Format(VoiceDsp.Rate);
+            IntPtr h;
+            if (audio == null || audio.Length == 0 || Wave.waveOutOpen(out h, -1, ref fmt, IntPtr.Zero, IntPtr.Zero, 0) != 0) return;
+            var b = new Wave.Buffer(audio.Length * 2);
+            var pcm = new short[audio.Length];
+            for (int i = 0; i < audio.Length; i++) pcm[i] = (short)(Math.Max(-1, Math.Min(1, audio[i])) * 32767);
+            Marshal.Copy(pcm, 0, b.Data, pcm.Length);
+            b.PrepareOut(h);
+            b.Write(h, pcm.Length * 2);
+            while (!b.Done) Thread.Sleep(20);
+            b.UnprepareOut(h);
+            Wave.waveOutClose(h);
+            b.Free_();
         }
 
         public static List<string> OutputDevices()
