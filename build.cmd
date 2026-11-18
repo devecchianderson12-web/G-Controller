@@ -9,4 +9,8 @@ obj\mkicon.exe obj\app.ico || exit /b 1
 "%CSC%" -nologo -target:winexe -platform:anycpu -optimize+ -win32icon:obj\app.ico -win32manifest:src\app.manifest ^
   -resource:res\g305.png,g305.png -resource:res\g733.png,g733.png ^
   -r:System.Windows.Forms.dll -r:System.Drawing.dll -out:GController.exe src\*.cs || exit /b 1
-echo OK: GController.exe
+rem Instalador: lleva GController.exe adentro.
+"%CSC%" -nologo -target:winexe -platform:anycpu -optimize+ -win32icon:obj\app.ico -win32manifest:src\app.manifest ^
+  -resource:GController.exe,app.exe ^
+  -r:System.Windows.Forms.dll -r:System.Drawing.dll -out:GController-Setup.exe setup\Setup.cs src\Art.cs || exit /b 1
+echo OK: GController.exe y GController-Setup.exe

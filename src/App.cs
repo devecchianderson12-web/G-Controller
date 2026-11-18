@@ -144,6 +144,23 @@ namespace GControl
         {
             try { if (StartWithWindows) StartWithWindows = true; } catch { }
         }
+
+        // Instalada con GController-Setup: tras una actualización automática, mostrar la versión nueva en "Aplicaciones instaladas".
+        public static void FixInstalledVersion()
+        {
+            try
+            {
+                using (var k = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall\GController", true))
+                {
+                    if (k == null) return;
+                    var dir = k.GetValue("InstallLocation") as string;
+                    if (dir != null && string.Equals(System.IO.Path.GetFullPath(dir).TrimEnd('\\'),
+                            System.IO.Path.GetDirectoryName(Application.ExecutablePath).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                        k.SetValue("DisplayVersion", Program.Version);
+                }
+            }
+            catch { }
+        }
     }
 
     partial class MainForm : Form
@@ -219,6 +236,7 @@ namespace GControl
             headset.GKey += down => { if (down && IsHandleCreated) Ui(new Action(RunG1)); };
 
             Settings.FixRunPath();
+            Settings.FixInstalledVersion();
             timer.Interval = 30000;
             timer.Tick += (s, e) => Poll();
             timer.Start();
